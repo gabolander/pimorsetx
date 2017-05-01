@@ -1,12 +1,4 @@
 /**********************************************************************
-* Filename    : BtnAndLed.c
-* Description : Controlling an led by button.
-* Author      : Robot
-* E-mail      : support@sunfounder.com
-* website     : www.sunfounder.com
-* Date        : 2014/08/27
-**********************************************************************/
-/**********************************************************************
 * Filename    : pimorsetx.c
 * Description : 
 * Author      : Gabriele "Gabolander" Zappi
