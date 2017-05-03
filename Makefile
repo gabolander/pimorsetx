@@ -46,6 +46,9 @@ simulate:
 simdebug: 
 	$(CC) $(CFLAGS) $(INCL) $(DEBUG) $(SIMDEBUG_FLAG) $(LIB) -Wall -o pimorsetx pimorsetx.c
 
+mousetest: 
+	$(CC) $(CFLAGS) $(INCL) $(DEBUG) -Wall -o pimorsetx_mouse pimorsetx_mouse.c
+
 # presta: strfunz.o presta.o
 # 	$(COMPLINK) -o $@ presta.o strfunz.o
 # senal: strfunz.o senal.o
