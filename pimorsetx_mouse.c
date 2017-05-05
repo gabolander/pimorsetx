@@ -84,6 +84,8 @@ const char Kmorsev[][MAXMORSELENGTH] = {
 
 #define SEC_TIME_MS 5
 
+#define VECT_BEAT_MAX_ANALYSIS 10
+
 typedef unsigned char bool;
 
 bool Is_seq_started=0, State_pressed=0;
@@ -102,11 +104,15 @@ void delay(long);
 
 
 void reset_delays(long dot_delay) {
+    if( dot_delay == Dot_ms_len ) return;
     Dot_ms_len=dot_delay;
     Dash_ms_len=dot_delay*3L;
     Delay_ms_dots=dot_delay;
     Delay_ms_letters=dot_delay*3L;
     Delay_ms_words=dot_delay*5L;
+#ifdef DEBUG
+    printf("New dot delay is %ld\r\n",Dot_ms_len);
+#endif    
 }
 
 char decode_buffer(char * buffer){
@@ -118,6 +124,26 @@ char decode_buffer(char * buffer){
     }
     return (i>=vlen)?'#':Kalfav[i];
 }
+
+void analyze_times(long dot_millis) {
+    static int cursor=3; // starts from 4th position of array
+    static long vect[VECT_BEAT_MAX_ANALYSIS]={120L,120L,100L,0L,0L,0L,0L,0L,0L,0L};
+    long sum=0L;
+    long new_dot_len;
+    int counter;
+    
+    vect[cursor++]=dot_millis;
+    if(cursor>=VECT_BEAT_MAX_ANALYSIS) cursor=0;
+    
+    for(counter=0;counter<VECT_BEAT_MAX_ANALYSIS;counter++) {
+        if(!vect[counter]) return; // if 0L, quits at once
+        sum+=vect[counter];
+    }
+    
+    new_dot_len=sum/VECT_BEAT_MAX_ANALYSIS;
+    reset_delays(new_dot_len);
+}
+
 
 /* e.g.:          res=evaluate_event(sz_morse_buffer, micros_used, MC_CODE_SPACE); */
 unsigned char evaluate_event(char * buffer, long micros, unsigned char chartype)
@@ -152,6 +178,7 @@ unsigned char evaluate_event(char * buffer, long micros, unsigned char chartype)
                 c=decode_buffer(buffer);
                 buffer[0]='\0';
                 putchar(c);
+                fflush(stdout);
             } else {
                 // Detecting end of sign (DOT or LINE) ...
                 ret=0x01;
@@ -167,11 +194,17 @@ unsigned char evaluate_event(char * buffer, long micros, unsigned char chartype)
             // Add a dot
             strcpy(s,".");
             ret=0x10;
+            analyze_times(millis);
         }
         if(strlen(buffer)<=(MAX_MORSE_BUFFER_SIZE-1))
             strcat(buffer,s);
         
     }
+
+#ifdef DEBUG
+    printf("Update buffer value: [%s]\r\n",buffer);
+#endif    
+    
     
     return ret;
 }
@@ -222,6 +255,10 @@ int getch()
   }
 }
 
+/* this function is for use with gettimeofday() function and
+ * struct timeval struct - but I want to avoid to use 
+ * gettimeofday() but clock_gettime() instead and timespec
+ * structure *
 long microseconds(struct timeval start, struct timeval end)
 {
   long secs_used,micros_used;
@@ -236,18 +273,23 @@ long microseconds(struct timeval start, struct timeval end)
 
   return micros_used;
 }
+*/
 
-long microseconds2(struct timespec start, struct timespec end)
+long microseconds(struct timespec start, struct timespec end)
 {
   long secs_used,micros_used;
 
+#ifdef DEBUG
   printf("start: %ld secs, %ld nsecs,",start.tv_sec,start.tv_nsec);
   printf("end: %ld secs, %ld nsecs,",end.tv_sec,end.tv_nsec);
+#endif    
 
   secs_used=(end.tv_sec - start.tv_sec); //avoid overflow by subtracting first
   micros_used= ((secs_used*1000000) + (end.tv_nsec/1000)) - (start.tv_nsec/1000);
 
+#ifdef DEBUG
   printf("micros_used: %ld\r\n",micros_used); // GABODebug
+#endif
 
   return micros_used;
 }
@@ -283,7 +325,6 @@ int main(void)
   // struct timeval start, end;
   struct timespec ts_start,ts_end;
   long micros_used;
-  int c;
   int fd;
   const char *pDevice = "/dev/input/mice";
   unsigned char res=0x0;
@@ -319,6 +360,7 @@ int main(void)
   // printf("\r\n Waiting for keyboard input. Press 'Q' to quit.\r\n");
   printf("\r\n Waiting for input. Press 'CTRL+C' to interrupt and quit.\r\n");
   while(1){
+    res=0x00;
     /* // Doesn't work fine together with mouse detection ...
     if(kbhit()) {
       c=getch();
@@ -335,12 +377,12 @@ int main(void)
           // gettimeofday(&end, NULL);
           clock_gettime(CLOCK_MONOTONIC, &ts_end);
           // micros_used=microseconds(start,end);
-          micros_used=microseconds2(ts_start,ts_end);
+          micros_used=microseconds(ts_start,ts_end);
 #ifdef DEBUG          
           printf("- Microsecond passed in last SILENCE (dot or line) : %ld (millis=%ld)\r\n\r\n",micros_used,micros_used/1000L);
 #endif
           
-          // FIXME: here stats space's length
+          // here stats space's length
           res=evaluate_event(sz_morse_buffer, micros_used, MC_CODE_SPACE);
           
           // gettimeofday(&start, NULL);
@@ -362,12 +404,12 @@ int main(void)
           // gettimeofday(&end, NULL);
           clock_gettime(CLOCK_MONOTONIC, &ts_end);
           // micros_used=microseconds(start,end);
-          micros_used=microseconds2(ts_start,ts_end);
+          micros_used=microseconds(ts_start,ts_end);
 #ifdef DEBUG          
           printf("+ Microsecond passed in last SIGN (dot or line) : %ld (millis=%ld)\r\n",micros_used,micros_used/1000L);
 #endif
 
-          // FIXME: here stats DOR or LINE length
+          // here stats DOR or LINE length
           res=evaluate_event(sz_morse_buffer, micros_used, MC_CODE_SIGN);
 
           // gettimeofday(&start, NULL);
@@ -376,6 +418,10 @@ int main(void)
         State_pressed=0;
       }
     }
+    
+    // -- if detected button pressed, evaluate again delays)
+    // if ( res & 0x30 ) analyze_times( micros_used / 1000L );
+    
     delay(SEC_TIME_MS);
   }
 
