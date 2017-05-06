@@ -16,18 +16,15 @@
 *               Please read LICENSE.txt released with this code for 
 *               further details.
 **********************************************************************/
-#include <wiringPi.h>
-#include <stdio.h>
-
 #ifndef NOPI
 #include <wiringPi.h>
 #endif
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include  <signal.h>
+#include <signal.h>
 #include <unistd.h>
-#include <sys/time.h> // for clock_gettime()
+// #include <sys/time.h> // for gettimeofday()
 #include <time.h> // for clock_gettime()
 #include <sys/select.h>
 #include <termios.h>
@@ -39,6 +36,10 @@
 
 #define MAXMORSELENGTH 11
 #define MAXMESSAGELENGTH 250
+
+#define MC_CODE_SPACE   0
+#define MC_CODE_SIGN    1
+#define MAX_MORSE_BUFFER_SIZE 4097 // To create a 4K morse buffer
 
 const unsigned char Kalfav[] = { 'A','B','C','D','E','F','G','H','I','J',
             'K','L','M','N','O','P','Q','R','S','T',
@@ -72,11 +73,130 @@ const char Kmorsev[][MAXMORSELENGTH] = {
 
 #define SEC_TIME_MS 5
 
+#define VECT_BEAT_MAX_ANALYSIS 10
+
 typedef unsigned char bool;
 
 bool Is_seq_started=0, State_pressed=0;
-                         
+
+long Dot_ms_len;
+long Dash_ms_len;
+long Delay_ms_dots;
+long Delay_ms_letters;
+long Delay_ms_words;
+
+void reset_delays(long);
+unsigned char evaluate_event(char *, long, unsigned char);
+
 struct termios orig_termios;
+
+void reset_delays(long dot_delay) {
+    if( dot_delay == Dot_ms_len ) return;
+    Dot_ms_len=dot_delay;
+    Dash_ms_len=dot_delay*3L;
+    Delay_ms_dots=dot_delay;
+    Delay_ms_letters=dot_delay*3L;
+    Delay_ms_words=dot_delay*5L;
+#ifdef DEBUG
+    printf("New dot delay is %ld\r\n",Dot_ms_len);
+#endif    
+}
+
+char decode_buffer(char * buffer){
+    register int i,vlen;
+    vlen=(int)sizeof(Kalfav);
+    for(i=0;i<vlen;i++) {
+        if(!strcmp(buffer,Kmorsev[i]))
+            break;
+    }
+    return (i>=vlen)?'#':Kalfav[i];
+}
+
+void analyze_times(long dot_millis) {
+    static int cursor=3; // starts from 4th position of array
+    static long vect[VECT_BEAT_MAX_ANALYSIS]={120L,120L,100L,0L,0L,0L,0L,0L,0L,0L};
+    long sum=0L;
+    long new_dot_len;
+    int counter;
+    
+    vect[cursor++]=dot_millis;
+    if(cursor>=VECT_BEAT_MAX_ANALYSIS) cursor=0;
+    
+    for(counter=0;counter<VECT_BEAT_MAX_ANALYSIS;counter++) {
+        if(!vect[counter]) return; // if 0L, quits at once
+        sum+=vect[counter];
+    }
+    
+    new_dot_len=sum/VECT_BEAT_MAX_ANALYSIS;
+    reset_delays(new_dot_len);
+}
+
+
+/* e.g.:          res=evaluate_event(sz_morse_buffer, micros_used, MC_CODE_SPACE); */
+unsigned char evaluate_event(char * buffer, long micros, unsigned char chartype)
+{
+    unsigned char ret=0x00;
+    long millis=micros/1000L;
+    char c;
+    char s[4]="";
+    /*
+     * return value "ret" can be:
+     *  0x01 - registered a SILENCE gap between two signs of the same letter 
+     *        (dot or line)
+     *  0x02 - registered a SILENCE between two letters 
+     *  0x04 - registered a SILENCE between two words
+     *  0x10 - registered a DOT SIGN
+     *  0x20 - registered a LINE SIGN
+     */
+
+    if( chartype == MC_CODE_SPACE ) {
+        // Detecting end of word (put a space between word) ...
+        if(millis>Delay_ms_words || 
+            millis>(Delay_ms_letters+((Delay_ms_words-Delay_ms_letters)/2))) 
+        {
+            // I must feed of one SPACE, and empty buffer
+            // ...
+            ret=0x04;
+            buffer[0]='\0';
+            putchar(' ');
+        } else if(millis>(Delay_ms_dots*2L)) {
+            // Detecting end of letter ...
+                ret=0x02;
+                c=decode_buffer(buffer);
+                buffer[0]='\0';
+                putchar(c);
+                fflush(stdout);
+            } else {
+                // Detecting end of sign (DOT or LINE) ...
+                ret=0x01;
+            }
+    } else { /* ( chartype == MC_CODE_SIGN ) */
+        if(millis>Dash_ms_len || 
+            millis>(Dot_ms_len*2)) 
+        {
+            // Add a dash
+            strcpy(s,"-");
+            ret=0x20;
+        } else {
+            // Add a dot
+            strcpy(s,".");
+            ret=0x10;
+            analyze_times(millis);
+        }
+        if(strlen(buffer)<=(MAX_MORSE_BUFFER_SIZE-1))
+            strcat(buffer,s);
+        
+    }
+
+#ifdef DEBUG
+    printf("Update buffer value: [%s]\r\n",buffer);
+#endif    
+    
+    
+    return ret;
+}
+
+
 
 void reset_terminal_mode()
 {
@@ -117,6 +237,10 @@ int getch()
   }
 }
 
+/* this function is for use with gettimeofday() function and
+ * struct timeval struct - but I want to avoid to use 
+ * gettimeofday() but clock_gettime() instead and timespec
+ * structure *
 long microseconds(struct timeval start, struct timeval end)
 {
   long secs_used,micros_used;
@@ -131,18 +255,23 @@ long microseconds(struct timeval start, struct timeval end)
 
   return micros_used;
 }
+*/
 
-long microseconds2(struct timespec start, struct timespec end)
+long microseconds(struct timespec start, struct timespec end)
 {
   long secs_used,micros_used;
 
+#ifdef DEBUG
   printf("start: %ld secs, %ld nsecs,",start.tv_sec,start.tv_nsec);
   printf("end: %ld secs, %ld nsecs,",end.tv_sec,end.tv_nsec);
+#endif    
 
   secs_used=(end.tv_sec - start.tv_sec); //avoid overflow by subtracting first
   micros_used= ((secs_used*1000000) + (end.tv_nsec/1000)) - (start.tv_nsec/1000);
 
+#ifdef DEBUG
   printf("micros_used: %ld\r\n",micros_used); // GABODebug
+#endif
 
   return micros_used;
 }
@@ -153,7 +282,10 @@ int main(void)
   struct timespec ts_start,ts_end;
   long micros_used;
   int c;
-
+  unsigned char res=0x0;
+  
+  char sz_morse_buffer[MAX_MORSE_BUFFER_SIZE];
+    
   set_conio_terminal_mode();
 
   if(wiringPiSetup() == -1){ //when initialize wiring failed,print messageto screen
@@ -177,7 +309,9 @@ int main(void)
 #endif
   /** PER MISURARE IL TEMPO - FINE **/
 
-
+  // I reset global values for measuring the times
+  reset_delays((long)DOT_MS_LEN);
+  sz_morse_buffer[0]='\0';
 
   pinMode(LedPin, OUTPUT); 
   pinMode(ButtonPin, INPUT);
@@ -193,6 +327,7 @@ int main(void)
       printf(" Pressed key (#%d) = %c\r\n",c,c);
       if(toupper(c)=='Q') break;
     }
+    res=0x00;
     if(digitalRead(ButtonPin) == 0){ //indicate that button has pressed down
       digitalWrite(LedPin, LOW);   //led on
       digitalWrite(BeepPin, LOW);  //beep on
@@ -202,8 +337,14 @@ int main(void)
           // gettimeofday(&end, NULL);
           clock_gettime(CLOCK_MONOTONIC, &ts_end);
           // micros_used=microseconds(start,end);
-          micros_used=microseconds2(ts_start,ts_end);
+          micros_used=microseconds(ts_start,ts_end);
+#ifdef DEBUG          
           printf("- Microsecond passed in last SILENCE (dot or line) : %ld (millis=%ld)\r\n\r\n",micros_used,micros_used/1000L);
+#endif          
+          
+          // here stats space's length
+          res=evaluate_event(sz_morse_buffer, micros_used, MC_CODE_SPACE);
+
           // gettimeofday(&start, NULL);
           clock_gettime(CLOCK_MONOTONIC, &ts_start);
         }
@@ -223,8 +364,13 @@ int main(void)
           // gettimeofday(&end, NULL);
           clock_gettime(CLOCK_MONOTONIC, &ts_end);
           // micros_used=microseconds(start,end);
-          micros_used=microseconds2(ts_start,ts_end);
+          micros_used=microseconds(ts_start,ts_end);
+#ifdef DEBUG          
           printf("+ Microsecond passed in last SIGN (dot or line) : %ld (millis=%ld)\r\n",micros_used,micros_used/1000L);
+#endif
+          // here stats DOR or LINE length
+          res=evaluate_event(sz_morse_buffer, micros_used, MC_CODE_SIGN);
+          
           // gettimeofday(&start, NULL);
           clock_gettime(CLOCK_MONOTONIC, &ts_start);
         }
