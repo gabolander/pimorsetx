@@ -106,7 +106,8 @@ void reset_delays(long dot_delay) {
     // mvwprintw(Win,0,COLS/2+1,"New dot delay is %ld\r\n",Dot_ms_len);
     mvprintw(0,COLS/2+1,"New dot delay is %ld\r\n",Dot_ms_len);
     // printf("DOT %ld",Dot_ms_len);
-    fflush(stdout);
+    // fflush(stdout);
+    refresh();
 //     sprintf(tmp,"New dot delay is %ld\r\n",Dot_ms_len);
 //     printw(tmp);
 // #endif    
@@ -141,6 +142,14 @@ void analyze_times(long dot_millis) {
     reset_delays(new_dot_len);
 }
 
+/* Advance position in the main window */
+void advance_pos(int *y, int *x) {
+    if ((++*x)>COLS) {
+        *x=0;
+        if((++*y)>LINES) *y=0;
+    }
+    return;
+}
 
 /* e.g.:          res=evaluate_event(sz_morse_buffer, micros_used, MC_CODE_SPACE); */
 unsigned char evaluate_event(char * buffer, long micros, unsigned char chartype)
@@ -149,6 +158,7 @@ unsigned char evaluate_event(char * buffer, long micros, unsigned char chartype)
     long millis=micros/1000L;
     char c;
     char s[4]="";
+    static int y=3,x=0;
     /*
      * return value "ret" can be:
      *  0x01 - registered a SILENCE gap between two signs of the same letter 
@@ -168,14 +178,21 @@ unsigned char evaluate_event(char * buffer, long micros, unsigned char chartype)
             // ...
             ret=0x04;
             buffer[0]='\0';
-            putchar(' ');
+            // putchar(' ');
+            move(y,x);
+            printw(" "); refresh();
+            advance_pos(&y,&x);
+            
         } else if(millis>(Delay_ms_dots*2L)) {
             // Detecting end of letter ...
                 ret=0x02;
                 c=decode_buffer(buffer);
                 buffer[0]='\0';
-                putchar(c);
-                fflush(stdout);
+                // putchar(c);
+                move(y,x);
+                printw("%c",c); refresh();
+                advance_pos(&y,&x);
+                //fflush(stdout);
             } else {
                 // Detecting end of sign (DOT or LINE) ...
                 ret=0x01;
