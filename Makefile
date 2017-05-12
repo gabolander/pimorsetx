@@ -21,6 +21,7 @@ CFLAGS = $(CODEGEN) $(OPTIMIZATION) $(OPTIONS)
 
 #LIB = -lncurses -lwiringPi
 LIB = -lwiringPi
+CURSES_LIB = -lcurses
 # LIB = 
 
 # COMPLINK = $(CC) $(CFLAGS) $(INCL) $(DEBUG) -Wall $(LIB)
@@ -48,7 +49,17 @@ simdebug:
 
 mousetest: 
 	$(CC) $(CFLAGS) $(INCL) $(DEBUG) -Wall -o pimorsetx_mouse pimorsetx_mouse.c
+	
+curses:	
+	$(CC) $(CFLAGS) $(INCL) $(DEBUG) $(LIB) -Wall -o pimorsetx pimorsetx_curses.c
 
+curses-simulate:	
+	$(CC) $(CFLAGS) $(INCL) $(DEBUG) $(SIMULATE_FLAG) -Wall -o pimorsetx $(CURSES_LIB) pimorsetx_curses.c
+
+curses-simdebug:	
+	$(CC) $(CFLAGS) $(INCL) $(DEBUG) $(SIMDEBUG_FLAG) -Wall -o pimorsetx pimorsetx_curses.c $(CURSES_LIB)
+
+	
 # presta: strfunz.o presta.o
 # 	$(COMPLINK) -o $@ presta.o strfunz.o
 # senal: strfunz.o senal.o

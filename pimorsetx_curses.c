@@ -93,6 +93,12 @@ unsigned char evaluate_event(char *, long, unsigned char);
 
 struct termios orig_termios;
 
+#ifdef NOPI
+void delay(long millis) {
+    usleep((useconds_t)(millis*1000));
+}
+#endif
+
 void reset_delays(long dot_delay) {
     // char tmp[1025];
     if( dot_delay == Dot_ms_len ) return;
@@ -324,7 +330,7 @@ int base_mask( void )
 int main(void)
 {
   // struct timeval start, end;
-  struct timespec ts_start,ts_end;
+  struct timespec ts_start,ts_end,ts_interm;
   long micros_used;
   int c,i,j;
   unsigned char res=0x0;
@@ -353,10 +359,12 @@ int main(void)
   // set_conio_terminal_mode();
   base_mask();
 
+#ifndef NOPI
   if(wiringPiSetup() == -1){ //when initialize wiring failed,print messageto screen
     printf("setup wiringPi failed !");
     return 1; 
   }
+#endif
 
   /** PER MISURARE IL TEMPO - INIZIO **/
 #if 0
@@ -378,24 +386,39 @@ int main(void)
   reset_delays((long)DOT_MS_LEN);
   sz_morse_buffer[0]='\0';
 
+#ifndef NOPI
   pinMode(LedPin, OUTPUT); 
   pinMode(ButtonPin, INPUT);
   pinMode(BeepPin, OUTPUT);   //set GPIO0 output
+#endif
 
+#ifndef NOPI
   pullUpDnControl(ButtonPin, PUD_UP);  //pull up to 3.3V,make GPIO1 a stable level
   digitalWrite(BeepPin, HIGH); //beep off
   digitalWrite(LedPin, HIGH); // Led off
+#endif
   printf("\r\n Waiting for keyboard input. Press 'Q' to quit.\r\n");
   while(1){
     c=getch();
     if(c>0)
         printf(" Pressed key (#%d) = %c\r\n",c,c);
     if(toupper(c)=='Q') break;
+    
+    /***************************************************
+     * Main Cycle: Listening for pulse or silence
+     ***************************************************/ 
     res=0x00;
-    if(digitalRead(ButtonPin) == 0){ //indicate that button has pressed down
+#ifdef NOPI
+    if( c=='.' || c=='-' )   // Indicates DOT or LINE pressed
+#else
+    if(digitalRead(ButtonPin) == 0) //indicate that button has pressed down
+#endif
+    {
+#ifndef NOPI
       digitalWrite(LedPin, LOW);   //led on
       digitalWrite(BeepPin, LOW);  //beep on
-
+#endif
+      
       if(Is_seq_started) {
         if(!State_pressed){
           // gettimeofday(&end, NULL);
@@ -421,8 +444,10 @@ int main(void)
       State_pressed=1;
     }
     else {  // Button is unpressed
+#ifndef NOPI
       digitalWrite(BeepPin, HIGH); //beep off
       digitalWrite(LedPin, HIGH);
+#endif
       if(Is_seq_started) {
         if(State_pressed) {
           // gettimeofday(&end, NULL);
@@ -439,14 +464,30 @@ int main(void)
           clock_gettime(CLOCK_MONOTONIC, &ts_start);
         }
         State_pressed=0;
+      } else 
+          /* if it still unpressed, I check if passed maximum delay time.
+           * In this case, I suspend the listening */
+      {
+          clock_gettime(CLOCK_MONOTONIC, &ts_interm);
+          micros_used=microseconds(ts_start,ts_interm);
+#ifdef DEBUG          
+          printf("- Microsecond passed in last INTERMEDIATE SILENCE (dot or line) : %ld (millis=%ld)\r\n\r\n",micros_used,micros_used/1000L);
+#endif          
+          
+          // here stats space's length
+          res=evaluate_event(sz_morse_buffer, micros_used, MC_CODE_SPACE);
+          if((micros_used/1000L)>Delay_ms_words)
+              Is_seq_started=0; /* Puts in "wait state" until button is pressed again */
       }
     }
     delay(SEC_TIME_MS);
   }
 
   // (void)getch(); /* consume the character */
+#ifndef NOPI
   digitalWrite(BeepPin, HIGH); //beep off
   digitalWrite(LedPin, HIGH); // Led off
+#endif
   printf("\r\nProgram ended.\r\n");
 
   clear();
