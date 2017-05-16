@@ -333,6 +333,7 @@ int main(void)
   struct timespec ts_start,ts_end,ts_interm;
   long micros_used;
   int c,i,j;
+  int last_key_pressed=0;
   unsigned char res=0x0;
   
   char sz_morse_buffer[MAX_MORSE_BUFFER_SIZE];
@@ -425,12 +426,6 @@ int main(void)
           clock_gettime(CLOCK_MONOTONIC, &ts_end);
           // micros_used=microseconds(start,end);
           micros_used=microseconds(ts_start,ts_end);
-#ifdef NOPI
-          /* If I have to simulate, then having short pressure (dot '.') or 
-           * long pressure (line '-') rapresented by keyboard, I assume 
-           * time for a dot pressing '.' and time for a line pressing '-' */
-          micros_used=(c=='.')?Dot_ms_len*1000L:Dash_ms_len*1000L;
-#endif
 #ifdef DEBUG          
           printf("- Microsecond passed in last SILENCE (dot or line) : %ld (millis=%ld)\r\n\r\n",micros_used,micros_used/1000L);
 #endif          
@@ -446,6 +441,9 @@ int main(void)
         clock_gettime(CLOCK_MONOTONIC, &ts_start);
         Is_seq_started=1;
       }
+#ifdef NOPI
+      last_key_pressed=c;
+#endif
 
       State_pressed=1;
     }
@@ -456,10 +454,17 @@ int main(void)
 #endif
       if(Is_seq_started) {
         if(State_pressed) {
+#ifdef NOPI
+          /* If I have to simulate, then having short pressure (dot '.') or 
+           * long pressure (line '-') rapresented by keyboard, I assume 
+           * time for a dot pressing '.' and time for a line pressing '-' */
+          micros_used=(last_key_pressed=='.')?Dot_ms_len*1000L:Dash_ms_len*1000L;
+#else
           // gettimeofday(&end, NULL);
           clock_gettime(CLOCK_MONOTONIC, &ts_end);
           // micros_used=microseconds(start,end);
           micros_used=microseconds(ts_start,ts_end);
+#endif
 #ifdef DEBUG          
           printf("+ Microsecond passed in last SIGN (dot or line) : %ld (millis=%ld)\r\n",micros_used,micros_used/1000L);
 #endif
@@ -479,9 +484,10 @@ int main(void)
   #endif          
             
             // here stats space's length
-            res=evaluate_event(sz_morse_buffer, micros_used, MC_CODE_SPACE);
-            if((micros_used/1000L)>Delay_ms_words)
+            if((micros_used/1000L)>Delay_ms_words) {
+                res=evaluate_event(sz_morse_buffer, micros_used, MC_CODE_SPACE);
                 Is_seq_started=0; /* Puts in "wait state" until button is pressed again */
+            }
         }
 
         State_pressed=0;

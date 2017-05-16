@@ -16,7 +16,7 @@ while [ "$sicuro" != "S" ]; do
 	sicuro=$(echo $sicuro | tr [:lower:] [:upper:])
 done
 
-git add $cosa
+git add $@
 git commit -m "$comment"
 
 echo -n "Vado col push. Batti un tasto ...."
