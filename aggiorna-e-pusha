@@ -1,0 +1,25 @@
+#!/bin/bash
+
+cosa="$1"
+
+[ -z "$cosa" ] && { echo "devi passare parametro. Es. $(basename $0) *.c"; exit; }
+
+sicuro=""
+while [ "$sicuro" != "S" ]; do
+	echo -n "Inserisci commento di revisione : "
+	read comment
+	echo
+	echo "Commento = $comment"
+	echo
+	echo -n 'Sicuro (S/*)?'
+	read sicuro
+	sicuro=$(echo $sicuro | tr [:lower:] [:upper:])
+done
+
+git add $cosa
+git commit -m "$comment"
+
+echo -n "Vado col push. Batti un tasto ...."
+read akey
+
+git push git@github.com:gabolander/pimorsetx.git
